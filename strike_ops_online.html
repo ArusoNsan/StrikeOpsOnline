@@ -1619,11 +1619,12 @@ function startRound(){
   assignC4();
   assignRoles();
   for(const u of game.units){ if(u.bot) botBuy(u); }
-  // プレイヤー武器スロット初期化
+  // プレイヤー武器スロット初期化 (全部捨てた場合はナイフ)
   const p=game.player;
-  p.cur = p.inventory.primary?"primary":"secondary";
+  p.cur = p.inventory.primary?"primary":(p.inventory.secondary?"secondary":"knife");
   const pw=unitWeapon(p); p.drawT=pw.draw||0.5;
-  vmShow(vmKindFor(p.cur==="knife"?"knife":curItem(p).wid));
+  const ci0=curItem(p);
+  vmShow(vmKindFor(p.cur==="knife"?"knife":(ci0?ci0.wid:"knife")));
   updateScopeUI(); // 前ラウンドのスコープ状態を確実に解除
   banner("ラウンド "+game.roundNo, "フリーズタイム — Bで購入", 2.5);
   SND.stingStart();
@@ -1803,7 +1804,10 @@ function updateHUDWeapon(){
   if(p.cur==="knife"){ nm="ナイフ"; }
   else if(p.cur==="grenade"){ nm={he:"HEグレネード",flash:"フラッシュバン",smoke:"スモーク"}[p.grenadeSel]; mag=p.inventory.grenades[p.grenadeSel]; rsv=""; }
   else if(p.cur==="c4"){ nm="C4"; }
-  else{ const it=curItem(p); nm=WEAPONS[it.wid].name; mag=it.mag; rsv=it.reserve; }
+  else{ const it=curItem(p);
+    if(it){ nm=WEAPONS[it.wid].name; mag=it.mag; rsv=it.reserve; }
+    else{ nm="ナイフ"; } // スロット消失時のフォールバック
+  }
   $("weaponName").textContent=nm;
   $("ammoMag").textContent=mag;
   $("ammoReserve").textContent=rsv;
@@ -2309,7 +2313,8 @@ function startOnlineMatch(roster){
   else{
     game.state="freeze"; game.freezeLeft=BALANCE.round.freezeTime;
     const p=game.player;
-    p.cur="secondary"; vmShow(vmKindFor(curItem(p).wid));
+    p.cur=p.inventory.secondary?"secondary":"knife";
+    const ci1=curItem(p); vmShow(vmKindFor(ci1?ci1.wid:"knife"));
     updateHUDWeapon(); updateHUDStatus(); updateScopeUI();
   }
 }
