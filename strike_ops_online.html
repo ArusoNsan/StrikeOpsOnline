@@ -1897,7 +1897,8 @@ function drawRadar(){
 }
 // スコアボード
 function buildScoreboard(){
-  let html="<h3>スコアボード</h3><table><tr><th></th><th>名前</th><th>K</th><th>D</th><th>$</th></tr>";
+  const errN=(window.__SOF_ERRORS||[]).length;
+  let html="<h3>スコアボード"+(errN?" <span style='color:#ff5a4a;font-size:11px;'>⚠ 内部エラー "+errN+"件 (要報告: "+((window.__SOF_ERRORS[0]||"").slice(0,60))+")</span>":"")+"</h3><table><tr><th></th><th>名前</th><th>K</th><th>D</th><th>$</th></tr>";
   const order=[...game.units].sort((a,b)=>(a.side===b.side)?(b.kills-a.kills):(a.side==="CT"?-1:1));
   for(const u of order){
     html+=`<tr class="${u.side.toLowerCase()}"><td>${u.side}</td><td>${u.isPlayer?"★ ":""}${u.name}${u.alive?"":" ✝"}</td><td>${u.kills}</td><td>${u.deaths}</td><td>$${u.money}</td></tr>`;
@@ -2625,13 +2626,24 @@ function render(){
 /* ---------- デュアル駆動ループ (rAF+setInterval, 固定タイムステップ) ---------- */
 const STEP=1/60;
 let last=performance.now(), acc=0;
+// 例外を記録しつつループを止めない (1tick失敗しても次tickで継続 = レンダリング凍結防止)
+window.__SOF_ERRORS=[];
+window.addEventListener("error",e=>{ if(window.__SOF_ERRORS.length<40) window.__SOF_ERRORS.push("uncaught: "+(e.message||"?")+" @"+(e.lineno||"?")); });
 function tick(){
   const now=performance.now();
   let d=(now-last)/1000; last=now;
   if(d>0.1)d=0.1;
   acc+=d;
-  while(acc>=STEP){ update(STEP); acc-=STEP; }
-  render();
+  while(acc>=STEP){
+    try{ update(STEP); }
+    catch(err){
+      if(window.__SOF_ERRORS.length<40){ window.__SOF_ERRORS.push("update: "+err.message+" | "+((err.stack||"").split("\n")[1]||"").trim()); console.error("[SOF] update error:",err); }
+      acc=0; break;
+    }
+    acc-=STEP;
+  }
+  try{ render(); }
+  catch(err){ if(window.__SOF_ERRORS.length<40) window.__SOF_ERRORS.push("render: "+err.message+" | "+((err.stack||"").split("\n")[1]||"").trim()); }
 }
 (function rafLoop(){ tick(); requestAnimationFrame(rafLoop); })();
 setInterval(tick,33);
