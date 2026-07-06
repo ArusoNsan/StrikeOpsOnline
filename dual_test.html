@@ -13,10 +13,16 @@
 </head>
 <body>
 <div class="wrap">
-  <div class="pane"><h4>HOST (CT)</h4>
-    <iframe id="fh" src="strike_ops_online.html?ws=ws://localhost:8732&room=TEST&name=HOST&team=CT&auto=1&minp=2"></iframe></div>
-  <div class="pane"><h4>GUEST (T)</h4>
-    <iframe id="fg" src="strike_ops_online.html?ws=ws://localhost:8732&room=TEST&name=GUEST&team=T&auto=1"></iframe></div>
+  <div class="pane"><h4>HOST (CT)</h4><iframe id="fh"></iframe></div>
+  <div class="pane"><h4>GUEST (T)</h4><iframe id="fg"></iframe></div>
 </div>
+<script>
+  // ?ws=wss://... で接続先を切替 (省略時はローカルリレー)
+  const q=new URLSearchParams(location.search);
+  const ws=encodeURIComponent(q.get("ws")||"ws://localhost:8732");
+  const room=q.get("room")||"TEST"+Math.floor(Math.random()*1000); // 本番テスト時の部屋衝突防止
+  document.getElementById("fh").src=`strike_ops_online.html?ws=${ws}&room=${room}&name=HOST&team=CT&auto=1&minp=2`;
+  document.getElementById("fg").src=`strike_ops_online.html?ws=${ws}&room=${room}&name=GUEST&team=T&auto=1`;
+</script>
 </body>
 </html>

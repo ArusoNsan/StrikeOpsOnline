@@ -141,7 +141,7 @@
 <div id="screenLobby" class="overlay hidden">
   <h1 style="font-size:clamp(20px,5vw,34px);">オンラインロビー</h1>
   <div class="panel">
-    <div class="sliderRow">サーバー <input type="text" id="lobbyUrl" style="flex:1;" value="ws://localhost:8732"></div>
+    <div class="sliderRow">サーバー <input type="text" id="lobbyUrl" style="flex:1;" value="wss://strikeopsonline.onrender.com"></div>
     <div class="sliderRow">名前 <input type="text" id="lobbyName" maxlength="12" style="flex:1;" value="プレイヤー"></div>
     <div class="sliderRow">ルーム <input type="text" id="lobbyRoom" maxlength="8" style="flex:1;" value="MAIN"></div>
     <div class="diffRow" style="margin-top:6px;">
@@ -2200,7 +2200,7 @@ $("btnStart2").addEventListener("click",beginPlay);
    オンライン: 接続 / ロビー / ホスト権威スナップショット / ゲスト予測
    ============================================================ */
 let lobbyTeam="auto";
-$("lobbyUrl").value=lsGet("sof_ws","ws://localhost:8732");
+$("lobbyUrl").value=lsGet("sof_ws","wss://strikeopsonline.onrender.com");
 $("btnLobby").addEventListener("click",()=>{ ensureAudio(); $("screenTitle").classList.add("hidden"); $("screenLobby").classList.remove("hidden"); });
 $("btnLobbyBack").addEventListener("click",()=>{ if(NET.ws){try{NET.ws.close();}catch(e){}} NET.mode=null; NET.connected=false;
   $("screenLobby").classList.add("hidden"); $("screenTitle").classList.remove("hidden"); });
