@@ -12,8 +12,15 @@ STRIKE OPS リレーサーバー (ホスト権威型のための純中継)
   ホスト→s {"t":"snap"/"start"/...} → ホスト以外の全員に転送
   s→全員 {"t":"hostleft"} ホスト切断時 (ルーム解散)
 """
-import asyncio, json, os, signal
+import asyncio, json, os
+from http import HTTPStatus
 from websockets.asyncio.server import serve
+
+def process_request(connection, request):
+    """WebSocket以外のHTTPアクセス(Renderのヘルスチェック等)に200を返す"""
+    if request.headers.get("Upgrade", "").lower() != "websocket":
+        return connection.respond(HTTPStatus.OK, "STRIKE OPS relay OK\n")
+    return None
 
 rooms = {}  # code -> {"clients": {id: ws}, "meta": {id: {...}}, "host": id, "next": int}
 
@@ -112,7 +119,7 @@ async def handler(ws):
 
 async def main():
     port = int(os.environ.get("PORT", "8732"))
-    async with serve(handler, "", port):
+    async with serve(handler, "", port, process_request=process_request):
         print(f"STRIKE OPS relay listening on :{port}")
         await asyncio.get_running_loop().create_future()
 
