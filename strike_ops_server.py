@@ -79,7 +79,14 @@ async def handler(ws):
             try:
                 # 転送方向は"t"で決める。中身は解釈しない(高頻度なのでパース最小化)
                 head = raw[:24]
-                if '"in"' in head:      # ゲスト入力 → ホストへ
+                if '"team"' in head:    # ロビーでの陣営変更 → メタ更新して全員に再配信
+                    try:
+                        msg = json.loads(raw)
+                        room["meta"][cid]["team"] = msg.get("team", "auto")
+                        await broadcast(room, {"t": "roster", "roster": roster_of(room)})
+                    except Exception:
+                        pass
+                elif '"in"' in head:    # ゲスト入力 → ホストへ
                     hws = room["clients"].get(room["host"])
                     if hws is not None and cid != room["host"]:
                         await hws.send(raw)

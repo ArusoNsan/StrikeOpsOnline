@@ -115,7 +115,8 @@
   <div class="panel">
     <h3>操作方法</h3>
     <ul class="ctl">
-      <li>WASD : 移動 / Space : ジャンプ / Ctrl : しゃがみ / Shift : 歩き</li>
+      <li>WASD : 移動 / Space : ジャンプ / Ctrl または C : しゃがみ / Shift : 歩き</li>
+      <li>死亡中 : クリックで観戦切替 / E : 観戦中のBotに憑依</li>
       <li>マウス : 視点 / 左クリック : 射撃 / 右クリック : スコープ・強斬り</li>
       <li>R : リロード / B : 購入 / G : 武器を捨てる / E : 設置・解除(長押し)</li>
       <li>1〜4 : 武器スロット / 5 : C4 / Q : 持ち替え / Tab : スコア / Esc : ポーズ</li>
@@ -144,17 +145,25 @@
     <div class="sliderRow">サーバー <input type="text" id="lobbyUrl" style="flex:1;" value="wss://strikeopsonline.onrender.com"></div>
     <div class="sliderRow">名前 <input type="text" id="lobbyName" maxlength="12" style="flex:1;" value="プレイヤー"></div>
     <div class="sliderRow">ルーム <input type="text" id="lobbyRoom" maxlength="8" style="flex:1;" value="MAIN"></div>
-    <div class="diffRow" style="margin-top:6px;">
-      <button class="lobbyTeam diffBtn sel" data-t="auto">おまかせ</button>
-      <button class="lobbyTeam diffBtn" data-t="CT">CT</button>
-      <button class="lobbyTeam diffBtn" data-t="T">T</button>
-    </div>
     <button class="menuBtn" id="btnConnect">接続する</button>
     <div id="lobbyStatus" style="font-size:clamp(11px,1.8vh,13px);color:#8fa0b8;margin-top:4px;">未接続</div>
   </div>
   <div class="panel" id="lobbyRosterPanel" style="display:none;">
     <h3>参加者</h3>
     <div id="lobbyRoster" style="font-size:clamp(12px,2vh,14px);line-height:1.7;"></div>
+    <div style="font-size:clamp(10px,1.7vh,12px);color:#8fa0b8;margin-top:6px;">あなたの陣営:</div>
+    <div class="diffRow" style="margin-top:4px;">
+      <button class="lobbyTeam diffBtn sel" data-t="auto">おまかせ</button>
+      <button class="lobbyTeam diffBtn" data-t="CT">CT</button>
+      <button class="lobbyTeam diffBtn" data-t="T">T</button>
+    </div>
+    <div id="hostOptRow" style="display:none;">
+      <div style="font-size:clamp(10px,1.7vh,12px);color:#8fa0b8;margin-top:8px;">Bot補充 (5v5に埋める):</div>
+      <div class="diffRow" style="margin-top:4px;">
+        <button class="botsOpt diffBtn sel" data-b="1">あり</button>
+        <button class="botsOpt diffBtn" data-b="0">なし (人間のみ)</button>
+      </div>
+    </div>
     <button class="menuBtn" id="btnHostStart" style="display:none;">試合開始 (ホスト)</button>
     <div id="lobbyWait" style="font-size:clamp(11px,1.8vh,13px);color:#8fa0b8;">ホストの開始を待っています…</div>
   </div>
@@ -785,6 +794,11 @@ function maxSpeed(u){
 
 /* ---------- ユニット生成 ---------- */
 const BOT_NAMES=["ブレイズ","コバルト","ダガー","エコー","ファング","ゴースト","ハヤテ","アイアン","ジャッカル"];
+function botBrain(){
+  return { state:"idle", path:[], pathI:0, objective:-1, targetU:null,
+    reactT:0, loseT:0, lastKnown:null, strafePhase:rand(0,6.28), burstLeft:0, burstCd:0,
+    nextRepath:0, guardNode:-1, role:"", plantT:0, defuseT:0, alertPos:null };
+}
 let nameIdx=0;
 function makeUnit(side, team, isPlayer){
   const u={
@@ -798,9 +812,7 @@ function makeUnit(side, team, isPlayer){
     hasC4:false, cur:"secondary", lastSlot:"knife", grenadeSel:"he",
     drawT:0, reloadT:0, fireCd:0, sustained:0, sustainedT:0, footT:0,
     blindT:0, scoped:false, dmgFlashT:0,
-    bot: isPlayer?null:{ state:"idle", path:[], pathI:0, objective:-1, targetU:null,
-      reactT:0, loseT:0, lastKnown:null, strafePhase:rand(0,6.28), burstLeft:0, burstCd:0,
-      nextRepath:0, guardNode:-1, role:"", plantT:0, defuseT:0, alertPos:null },
+    bot: isPlayer?null:botBrain(),
     mesh:null,
   };
   if(!isPlayer){ u.mesh=buildHumanoid(); scene.add(u.mesh); }
@@ -869,6 +881,7 @@ function kill(victim, attacker, wid, headshot){
   if(victim===game.player){
     game.spectate=game.units.find(x=>x.alive&&x.team===victim.team&&!x.isPlayer)||null;
     $("hintLine").classList.add("hidden");
+    banner("","左右クリック: 観戦切替 / E: Botに憑依",3,true);
   }
   checkElimination();
 }
@@ -1295,7 +1308,7 @@ function updateDrops(dt){
       if(u.inventory[slot]) continue;
       if(Math.hypot(u.pos.x-d.pos.x,u.pos.z-d.pos.z)<1.0){
         u.inventory[slot]=d.item; d.active=false; d.mesh.visible=false;
-        if(u===game.player){ SND.buy(); updateHUDWeapon(); textPopup(w.name+" を拾った","#e8e8e8"); }
+        if(u===game.player){ SND.buy(); updateHUDWeapon(); bigPopup("◆ "+w.name+" を入手"); }
         break;
       }
     }
@@ -1455,6 +1468,18 @@ function updateBot(u,dt){
   const bomb=game.bomb;
   if(u.side==="T"){
     if(bomb.state==="dropped"){
+      const bd=Math.hypot(u.pos.x-bomb.pos.x,u.pos.z-bomb.pos.z);
+      if(bd<8){
+        // 最終アプローチ: ウェイポイントを離れて落下C4へ直進 (手前で止まる問題の修正)
+        const sp=maxSpeed(u)*0.9;
+        u.velX=lerp(u.velX,(bomb.pos.x-u.pos.x)/bd*sp,0.15);
+        u.velZ=lerp(u.velZ,(bomb.pos.z-u.pos.z)/bd*sp,0.15);
+        const wantYaw=Math.atan2(-(bomb.pos.x-u.pos.x),-(bomb.pos.z-u.pos.z));
+        let dy2=wantYaw-u.yaw;
+        while(dy2>Math.PI)dy2-=Math.PI*2; while(dy2<-Math.PI)dy2+=Math.PI*2;
+        u.yaw+=clamp(dy2,-4*dt,4*dt);
+        return;
+      }
       const ni=nearestWP(bomb.pos.x,bomb.pos.z);
       if(B.objective!==ni){ setBotPath(u,ni); }
     }else if(bomb.state==="planted"){
@@ -1851,6 +1876,17 @@ function textPopup(label,color){
   setTimeout(()=>el.remove(),1300);
 }
 const moneyPopup=label=>textPopup(label,"#7dff9a");
+// 武器入手など目立たせたい通知 (画面中央下に大きく)
+function bigPopup(label){
+  const el=document.createElement("div");
+  el.textContent=label;
+  el.style.cssText="position:fixed;left:50%;bottom:34%;transform:translateX(-50%);color:#ffd24a;"+
+    "font-size:clamp(16px,3vh,22px);font-weight:700;text-shadow:0 2px 6px #000;z-index:13;"+
+    "transition:opacity .4s;pointer-events:none;";
+  $("hud").appendChild(el);
+  setTimeout(()=>{ el.style.opacity="0"; },1400);
+  setTimeout(()=>el.remove(),1900);
+}
 function dmgFlashScreen(attacker){
   $("dmgFlash").style.opacity=0.85;
 }
@@ -1928,6 +1964,8 @@ const keys={};
 let firing=false, fireQueued=false;
 addEventListener("keydown",e=>{
   if(e.code==="Tab"){ e.preventDefault(); }
+  // プレイ中のCtrl+キーはブラウザショートカット(Ctrl+S保存等)を抑止
+  if((game.state==="freeze"||game.state==="live")&&!game.paused&&e.ctrlKey) e.preventDefault();
   if(keys[e.code]) return;
   keys[e.code]=true;
   ensureAudio();
@@ -1936,6 +1974,7 @@ addEventListener("keydown",e=>{
   if(e.code==="Escape"){ togglePause(); return; }
   if(!playing||!p||!p.alive) {
     if(e.code==="Tab"&&!game.paused&&game.state!=="title"){ buildScoreboard(); $("scoreboard").classList.remove("hidden"); game.sbOpen=true; }
+    if(e.code==="KeyE"&&playing&&p&&!p.alive) tryPossess(); // 死亡中: 観戦中のBotに憑依
     return;
   }
   // 購入メニュー中の数字キー/Pキーは購入専用 (スロット切替と衝突させない)
@@ -1987,6 +2026,16 @@ function applyRemoteEv(u,ev){
   if(ev.a==="key") handleActionKey(u,ev.c);
   else if(ev.a==="buy") applyRemoteBuy(u,ev.i);
   else if(ev.a==="heavy"){ if(u.cur==="knife"&&u.fireCd<=0){ u.fireCd=1.0; meleeAttack(u,true); } }
+  else if(ev.a==="possess"){
+    // ゲストの憑依要求 (ホスト権威で所有権を移転)
+    const target=game.units[ev.vi];
+    if(u.alive||!target||!target.alive||!target.bot||target.team!==u.team) return;
+    const n=u.name; u.name=target.name; target.name=n;
+    evPush({k:"nameswap",a:game.units.indexOf(u),b:ev.vi});
+    target.bot=null; target.remote=u.remote; u.remote=null;
+    u.bot=botBrain(); // 抜け殻は次ラウンドからNPC
+    // 以降の入力/スナップは新ユニットに紐づく (pv.idxでゲスト側も切替)
+  }
 }
 addEventListener("keyup",e=>{
   keys[e.code]=false;
@@ -2002,6 +2051,12 @@ canvas.addEventListener("mousedown",e=>{
   const p=game.player;
   const playing=(game.state==="freeze"||game.state==="live")&&!game.paused;
   if(!playing) return;
+  // 死亡中: クリックで観戦対象を切替 (左=前 / 右=次)
+  if(p&&!p.alive){
+    if(e.button===0) cycleSpectate(-1);
+    else if(e.button===2) cycleSpectate(1);
+    return;
+  }
   if(!game.pointerLocked){
     try{ canvas.requestPointerLock&&canvas.requestPointerLock(); }catch(err){}
     dragLast={x:e.clientX,y:e.clientY}; dragLastT=performance.now();
@@ -2061,7 +2116,7 @@ function updateHuman(u,dt,inp){
   if(inp.view){ u.yaw=inp.view.yaw; u.pitch=inp.view.pitch; }
   const frozen=game.state==="freeze";
   // しゃがみ
-  u.crouching=!!K["ControlLeft"]||!!K["ControlRight"];
+  u.crouching=!!K["ControlLeft"]||!!K["ControlRight"]||!!K["KeyC"]; // C=代替しゃがみ (Ctrl事故回避用)
   const te=u.crouching?BALANCE.player.eyeCrouch:BALANCE.player.eye;
   u.eyeH=lerp(u.eyeH,te,1-Math.exp(-10*dt));
   // E使用 (設置/解除)
@@ -2140,6 +2195,44 @@ function updateSpectate(){
   }
 }
 
+/* ---------- 観戦切替 / 憑依 ---------- */
+function spectateList(){
+  const p=game.player;
+  return game.units.filter(x=>x.alive&&x.team===p.team&&x!==p);
+}
+function cycleSpectate(dir){
+  const list=spectateList();
+  if(!list.length) return;
+  let i=list.indexOf(game.spectate);
+  i=(i+dir+list.length)%list.length;
+  game.spectate=list[i];
+  banner("","観戦: "+game.spectate.name+(game.spectate.remote==null&&game.spectate.bot!==undefined&&game.spectate.bot!==null?" (E: 憑依)":""),1.2,true);
+}
+// 憑依: 死亡中に観戦しているBotの操作を引き継ぐ (人間には不可)
+function tryPossess(){
+  const p=game.player, s=game.spectate;
+  if(!p||p.alive||!s||!s.alive||s.team!==p.team) return;
+  if(s.remote!=null||s.isPlayer||!s.bot) return; // Bot以外は不可
+  if(NET.mode==="guest"){ NET.guestEv.push({a:"possess",vi:game.units.indexOf(s)}); return; }
+  doPossess(p,s); // ホスト/オフライン: 即時
+}
+function doPossess(oldU,newU){
+  const n=oldU.name; oldU.name=newU.name; newU.name=n; // 名前ごと引き継ぐ
+  evPush({k:"nameswap",a:game.units.indexOf(oldU),b:game.units.indexOf(newU)});
+  newU.isPlayer=true; oldU.isPlayer=false;
+  newU.bot=null;
+  // 抜け殻には Botの頭脳を入れて次ラウンドからNPCとして復帰させる
+  oldU.bot=botBrain();
+  if(!oldU.mesh){ oldU.mesh=buildHumanoid(); scene.add(oldU.mesh); oldU.mesh.visible=false; }
+  if(newU.mesh) newU.mesh.visible=false;
+  game.player=newU; game.spectate=null;
+  newU.scoped=false; updateScopeUI();
+  const ci=curItem(newU);
+  vmShow(vmKindFor(newU.cur==="knife"?"knife":(ci?ci.wid:"knife")));
+  updateHUDWeapon(); updateHUDStatus();
+  banner("憑依","Botの操作を引き継ぎました",2,true);
+}
+
 /* ---------- F3 ウェイポイントデバッグ ---------- */
 let wpDebugGroup=null;
 function toggleWpDebug(){
@@ -2209,9 +2302,15 @@ $("lobbyUrl").value=lsGet("sof_ws","wss://strikeopsonline.onrender.com");
 $("btnLobby").addEventListener("click",()=>{ ensureAudio(); $("screenTitle").classList.add("hidden"); $("screenLobby").classList.remove("hidden"); });
 $("btnLobbyBack").addEventListener("click",()=>{ if(NET.ws){try{NET.ws.close();}catch(e){}} NET.mode=null; NET.connected=false;
   $("screenLobby").classList.add("hidden"); $("screenTitle").classList.remove("hidden"); });
+let hostBots=true;
 document.querySelectorAll(".lobbyTeam").forEach(b=>b.addEventListener("click",()=>{
   document.querySelectorAll(".lobbyTeam").forEach(x=>x.classList.remove("sel"));
   b.classList.add("sel"); lobbyTeam=b.dataset.t;
+  if(NET.connected) netSend({t:"team",team:lobbyTeam}); // 入室後の変更はサーバー経由で全員に共有
+}));
+document.querySelectorAll(".botsOpt").forEach(b=>b.addEventListener("click",()=>{
+  document.querySelectorAll(".botsOpt").forEach(x=>x.classList.remove("sel"));
+  b.classList.add("sel"); hostBots=b.dataset.b==="1";
 }));
 $("btnConnect").addEventListener("click",connectLobby);
 function connectLobby(){
@@ -2236,7 +2335,7 @@ function onNetMsg(m){
       renderRoster(); break;
     case "roster": NET.roster=m.roster; renderRoster(); break;
     case "start":
-      if(NET.mode!=="host"){ game.difficulty=m.diff||"normal"; beginOnline(m.roster); }
+      if(NET.mode!=="host"){ game.difficulty=m.diff||"normal"; beginOnline(m.roster,m.bots!==0); }
       break;
     case "in":
       if(NET.mode==="host"){
@@ -2263,9 +2362,10 @@ function renderRoster(){
     (r.host?"👑 ":"")+r.name+" <span style='color:#8fa0b8'>["+(r.team==="auto"?"おまかせ":r.team)+"]</span>"+(r.id===NET.id?" ← あなた":"")
   ).join("<br>");
   $("btnHostStart").style.display=NET.mode==="host"?"block":"none";
+  $("hostOptRow").style.display=NET.mode==="host"?"block":"none";
   $("lobbyWait").style.display=NET.mode==="host"?"none":"block";
 }
-function resolveTeams(roster){
+function resolveTeams(roster,humansOnly){
   const out=roster.map(r=>({id:r.id,name:r.name,team:r.team}));
   let ct=out.filter(r=>r.team==="CT").length, t=out.filter(r=>r.team==="T").length;
   for(const r of out){
@@ -2273,22 +2373,30 @@ function resolveTeams(roster){
       if(ct<=t&&ct<5){ r.team="CT"; ct++; } else if(t<5){ r.team="T"; t++; } else { r.team="CT"; ct++; }
     }
   }
+  // Botなし対戦では両陣営に最低1人必要 (片側空なら最後の1人を移す)
+  if(humansOnly&&out.length>=2){
+    if(ct===0){ out[out.length-1].team="CT"; }
+    else if(t===0){ out[out.length-1].team="T"; }
+  }
   return out;
 }
 $("btnHostStart").addEventListener("click",()=>{
-  const ros=resolveTeams(NET.roster);
-  netSend({t:"start",roster:ros,diff:game.difficulty});
-  beginOnline(ros);
+  let useBots=hostBots;
+  if(!useBots&&NET.roster.length<2){ useBots=true; } // 1人でBotなしは成立しないので強制的にあり
+  const ros=resolveTeams(NET.roster,!useBots);
+  netSend({t:"start",roster:ros,diff:game.difficulty,bots:useBots?1:0});
+  beginOnline(ros,useBots);
 });
-function beginOnline(roster){
+function beginOnline(roster,botsOn){
   $("screenLobby").classList.add("hidden");
   $("screenResult").classList.add("hidden");
   $("hud").classList.remove("hidden");
   $("dragHint").classList.remove("hidden");
   ensureAudio();
-  startOnlineMatch(roster);
+  startOnlineMatch(roster,botsOn);
 }
-function startOnlineMatch(roster){
+function startOnlineMatch(roster,botsOn){
+  if(botsOn===undefined) botsOn=true;
   for(const u of game.units){ if(u.mesh) scene.remove(u.mesh); }
   game.units.length=0; nameIdx=0;
   game.teams={A:{side:"CT",score:0,lossStreak:0},B:{side:"T",score:0,lossStreak:0}};
@@ -2303,9 +2411,9 @@ function startOnlineMatch(roster){
   };
   // 順序を全クライアントで一致させる: CT人間→CT Bot→T人間→T Bot
   roster.filter(r=>r.team==="CT").forEach(mk);
-  while(game.units.filter(u=>u.side==="CT").length<5) makeUnit("CT","A",false);
+  if(botsOn) while(game.units.filter(u=>u.side==="CT").length<5) makeUnit("CT","A",false);
   roster.filter(r=>r.team==="T").forEach(mk);
-  while(game.units.filter(u=>u.side==="T").length<5) makeUnit("T","B",false);
+  if(botsOn) while(game.units.filter(u=>u.side==="T").length<5) makeUnit("T","B",false);
   // Bot名もインデックスから決定的に (クライアント間で一致)
   game.units.forEach((u,i)=>{ if(u.bot) u.name=BOT_NAMES[i%BOT_NAMES.length]+"-"+i; });
   for(const u of game.units){ u.money=BALANCE.round.startMoney; giveDefaultLoadout(u); }
@@ -2330,7 +2438,7 @@ function hostSnapTick(){
   for(const u of game.units){
     if(u.remote==null) continue;
     const P=u.inventory.primary,S=u.inventory.secondary,g=u.inventory.grenades;
-    pv[u.remote]={m:u.money,k:u.kit?1:0,h:u.helmet?1:0,bt:+(u.blindT||0).toFixed(2),
+    pv[u.remote]={idx:game.units.indexOf(u),m:u.money,k:u.kit?1:0,h:u.helmet?1:0,bt:+(u.blindT||0).toFixed(2),
       g:[g.he,g.flash,g.smoke],sl:u.cur,ut:+(u.useT||0).toFixed(2),
       pw:P?P.wid:0,pm:P?P.mag:0,pr:P?P.reserve:0,
       sw:S?S.wid:0,sm:S?S.mag:0,sr:S?S.reserve:0};
@@ -2402,7 +2510,7 @@ function applySnap(s){
   game.teams.A.score=s.sc[0]; game.teams.B.score=s.sc[1];
   game.teams.A.side=s.sd[0]; game.teams.B.side=s.sd[1];
   if(s.rd!==NET.lastRd){ NET.lastRd=s.rd; guestRoundReset(); }
-  const own=game.player;
+  let own=game.player;
   for(const a of s.us){
     const u=game.units[a[0]]; if(!u) continue;
     const px=a[1],py=a[2],pz=a[3],yw=a[4],pt=a[5],hp=a[6],ar=a[7],al=a[8],sd=a[9],cr=a[10];
@@ -2432,6 +2540,20 @@ function applySnap(s){
   }
   // 自分の個人フィールド (ホスト確定値)
   const pv=s.pv&&s.pv[NET.id];
+  // 憑依の反映: ホストが自分のユニットを移し替えたら追従する
+  if(pv&&pv.idx!==undefined&&game.units[pv.idx]&&game.units[pv.idx]!==own){
+    const nu=game.units[pv.idx];
+    own.isPlayer=false;
+    if(!own.mesh){ own.mesh=buildHumanoid(); scene.add(own.mesh); own.mesh.visible=false; } // 抜け殻の描画用
+    nu.isPlayer=true; nu.bot=null;
+    if(nu.mesh) nu.mesh.visible=false;
+    game.player=nu; game.spectate=null; own=nu;
+    nu.scoped=false; updateScopeUI();
+    const ciP=curItem(nu);
+    vmShow(vmKindFor(nu.cur==="knife"?"knife":(ciP?ciP.wid:"knife")));
+    updateHUDWeapon();
+    banner("憑依","Botの操作を引き継ぎました",2,true);
+  }
   if(pv&&own){
     own.money=pv.m; own.kit=!!pv.k; own.helmet=!!pv.h;
     own.blindT=Math.max(own.blindT,pv.bt||0);
@@ -2440,7 +2562,10 @@ function applySnap(s){
     const setIt=(slot,wid,mg,rs)=>{
       if(!wid){ own.inventory[slot]=null; return; }
       const cur=own.inventory[slot];
-      if(!cur||cur.wid!==wid) own.inventory[slot]={wid,mag:mg,reserve:rs};
+      if(!cur||cur.wid!==wid){
+        own.inventory[slot]={wid,mag:mg,reserve:rs};
+        if(!cur&&game.state==="live") bigPopup("◆ "+WEAPONS[wid].name+" を入手"); // 拾得(購入はfreeze中が主)
+      }
       else{ cur.mag=mg; cur.reserve=rs; }
     };
     setIt("primary",pv.pw,pv.pm,pv.pr);
@@ -2466,6 +2591,7 @@ function guestKillVisual(u){
     u.scoped=false; updateScopeUI();
     $("useBar").style.display="none";
     game.spectate=game.units.find(x=>x.alive&&x.team===u.team&&!x.isPlayer)||null;
+    banner("","左右クリック: 観戦切替 / E: Botに憑依",3,true);
   }
 }
 function guestRoundReset(){
@@ -2495,6 +2621,8 @@ function applyNetEvent(e){
       banner(won?"ラウンド勝利!":"ラウンド敗北…", e.r, e.t, true);
       if(won) SND.stingWin(); else SND.stingLose(); break; }
     case "half": banner("チーム交代","後半: あなたは "+game.player.side+" 側",3,true); break;
+    case "nameswap": { const A=game.units[e.a], B2=game.units[e.b];
+      if(A&&B2){ const n=A.name; A.name=B2.name; B2.name=n; } break; }
     case "result": showResult(); break;
   }
 }
@@ -2543,7 +2671,17 @@ function update(dt){
   if(game.state==="freeze"||game.state==="live"){
     updatePlayer(dt);
     for(const u of game.units){
-      if(!u.alive) continue;
+      if(!u.alive){
+        // 死亡中のリモートプレイヤーでも「憑依」イベントだけは処理する
+        if(u.remote!=null){
+          const ri=NET.lastInputs[u.remote];
+          if(ri&&ri.ev&&ri.ev.length){
+            const evs=ri.ev.splice(0);
+            for(const ev of evs){ if(ev.a==="possess") applyRemoteEv(u,ev); }
+          }
+        }
+        continue;
+      }
       // 共通タイマー
       if(u.drawT>0)u.drawT-=dt;
       if(u.reloadT>0){ u.reloadT-=dt; if(u.reloadT<=0) finishReload(u); }
@@ -2652,6 +2790,11 @@ function tick(){
 }
 (function rafLoop(){ tick(); requestAnimationFrame(rafLoop); })();
 setInterval(tick,33);
+
+// 誤操作でのタブ閉じ/リロードに確認ダイアログ (Ctrl+Wはブラウザ仕様上ブロック不可のため)
+addEventListener("beforeunload",e=>{
+  if((game.state==="freeze"||game.state==="live")&&!game.matchOver){ e.preventDefault(); e.returnValue=""; }
+});
 
 /* ---------- 検証用ハンドル ---------- */
 window.__SOF_DEBUG={game,BALANCE,WEAPONS,WP,WP_EDGES,SOLIDS,rayMap,losClear,bfsPath,nearestWP,startMatch,NET};
